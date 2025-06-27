@@ -1,103 +1,213 @@
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import axios from "axios";
+import { AnimatePresence, motion } from "framer-motion";
+import { AlertCircle, Clock3, Mic, Repeat, Send } from "lucide-react";
 import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+	const [isRecording, setIsRecording] = useState(false);
+	const [audioURL, setAudioURL] = useState<string | null>(null);
+	const [recordingTime, setRecordingTime] = useState(0);
+	const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
+	const [showCountdownNotice, setShowCountdownNotice] = useState(false);
+	const [year, setYear] = useState("");
+	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+	const audioChunksRef = useRef<Blob[]>([]);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+	useEffect(() => {
+		if (typeof window !== "undefined") {
+			setYear(new Date().getFullYear().toString());
+		}
+	}, []);
+
+	const MAX_DURATION_SEC = 60;
+	const BE_URL = "https://your-api-gateway-url";
+
+	const formatDuration = (seconds: number) => {
+		const mins = Math.floor(seconds / 60);
+		const secs = seconds % 60;
+		if (mins > 0) {
+			return `${mins} min${mins > 1 ? "s" : ""}${
+				secs > 0 ? ` ${secs} sec` : ""
+			}`;
+		}
+		return `${secs} seconds`;
+	};
+
+	const handleStartRecording = async () => {
+		if (!navigator.mediaDevices || !window.MediaRecorder) {
+			alert("Your browser does not support voice recording.");
+			return;
+		}
+
+		const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+		const mediaRecorder = new MediaRecorder(stream);
+		mediaRecorderRef.current = mediaRecorder;
+		audioChunksRef.current = [];
+
+		mediaRecorder.ondataavailable = (event) => {
+			audioChunksRef.current.push(event.data);
+		};
+
+		mediaRecorder.onstop = () => {
+			const audioBlob = new Blob(audioChunksRef.current, {
+				type: "audio/webm",
+			});
+			const url = URL.createObjectURL(audioBlob);
+			setAudioURL(url);
+		};
+
+		mediaRecorder.start();
+		setIsRecording(true);
+		setRecordingTime(0);
+		setShowCountdownNotice(false);
+		const t = setInterval(() => {
+			setRecordingTime((prev) => {
+				if (prev >= MAX_DURATION_SEC) {
+					handleStopRecording();
+					return prev;
+				}
+				if (prev === MAX_DURATION_SEC - 10) {
+					setShowCountdownNotice(true);
+				}
+				return prev + 1;
+			});
+		}, 1000);
+		setTimer(t);
+	};
+
+	const handleStopRecording = () => {
+		if (
+			mediaRecorderRef.current &&
+			mediaRecorderRef.current.state === "recording"
+		) {
+			mediaRecorderRef.current.stop();
+			setIsRecording(false);
+		}
+		if (timer) clearInterval(timer);
+		setShowCountdownNotice(false);
+	};
+
+	const handleSend = async () => {
+		if (!audioURL) return;
+
+		try {
+			const data = new FormData();
+			const res = await fetch(audioURL);
+			const blob = await res.blob();
+			data.append("audio", blob, "recording.webm");
+
+			const response = await axios.post(BE_URL, data);
+			console.log("Response:", response.data);
+			alert("Your voice has been sent.");
+		} catch (error) {
+			console.error("Error sending message:", error);
+		}
+	};
+
+	return (
+		<div className="grid grid-rows-[auto_1fr_auto] items-center justify-items-center min-h-screen p-6 sm:p-12 font-sans bg-[#fefcf8]">
+			<main className="flex flex-col gap-6 items-center w-full max-w-2xl text-center">
+				<motion.div
+					initial={{ opacity: 0, y: -20 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ duration: 0.5 }}>
+					<Image
+						className="dark:invert mb-10"
+						src="/voicenest-logo.png"
+						alt="VoiceNest logo"
+						width={40}
+						height={40}
+						priority
+					/>
+				</motion.div>
+
+				<motion.h1
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1 }}
+					transition={{ delay: 0.3 }}
+					className="text-3xl sm:text-4xl font-bold text-[#2c2c2c] tracking-tight">
+					Speak Your Heart
+				</motion.h1>
+				<motion.p
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1 }}
+					transition={{ delay: 0.5 }}
+					className="text-lg text-muted-foreground">
+					Tap to record your voice. Let your feelings be heard.
+				</motion.p>
+
+				<p className="text-muted-foreground animate-pulse">
+					Maximum recording time: {formatDuration(MAX_DURATION_SEC)}
+				</p>
+
+				<Card className="w-full mt-10">
+					<CardContent className="p-4 sm:p-6 space-y-4">
+						<AnimatePresence>
+							{showCountdownNotice && (
+								<motion.div
+									initial={{ opacity: 0 }}
+									animate={{ opacity: 1 }}
+									exit={{ opacity: 0 }}
+									className="bg-red-100 text-red-800 p-3 rounded-xl flex items-center justify-center gap-2 font-semibold">
+									<AlertCircle size={20} /> Last 10 seconds remaining!
+								</motion.div>
+							)}
+						</AnimatePresence>
+
+						{audioURL && (
+							<motion.div
+								initial={{ opacity: 0, scale: 0.95 }}
+								animate={{ opacity: 1, scale: 1 }}
+								className="w-full">
+								<audio controls className="w-full">
+									<source src={audioURL} type="audio/webm" />
+									Your browser does not support the audio element.
+								</audio>
+							</motion.div>
+						)}
+
+						<div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+							<Button
+								onClick={
+									isRecording ? handleStopRecording : handleStartRecording
+								}
+								variant="default"
+								className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center">
+								{isRecording ? (
+									<>
+										<Clock3 size={18} /> Stop ({recordingTime}s)
+									</>
+								) : audioURL ? (
+									<>
+										<Repeat size={18} /> Retry
+									</>
+								) : (
+									<>
+										<Mic size={18} /> Start Talking
+									</>
+								)}
+							</Button>
+
+							<Button
+								onClick={handleSend}
+								disabled={!audioURL}
+								variant="secondary"
+								className="text-lg px-6 py-3 rounded-2xl flex gap-2 items-center">
+								<Send size={18} /> Send Voice
+							</Button>
+						</div>
+					</CardContent>
+				</Card>
+			</main>
+
+			<footer className="mt-12 text-sm text-muted-foreground text-center">
+				VoiceNest © {year} — Made with empathy.
+			</footer>
+		</div>
+	);
 }
