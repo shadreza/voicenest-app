@@ -104,9 +104,9 @@ export default function Home() {
 
 			const response = await axios.post(BE_URL, data);
 			console.log("Response:", response.data);
-			alert("Your voice has been sent.");
+			alert("Your voice has been sent!");
 		} catch (error) {
-			console.error("Error sending message:", error);
+			console.error("Error sending voice:", error);
 		} finally {
 			setIsLoading(false);
 		}
