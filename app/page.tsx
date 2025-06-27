@@ -140,10 +140,13 @@ export default function Home() {
 					className="text-lg text-muted-foreground">
 					Tap to record your voice. Let your feelings be heard.
 				</motion.p>
-
-				<p className="text-muted-foreground animate-pulse">
+				<motion.p
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1 }}
+					transition={{ delay: 0.7 }}
+					className="text-muted-foreground animate-pulse">
 					Maximum recording time: {formatDuration(MAX_DURATION_SEC)}
-				</p>
+				</motion.p>
 
 				<Card className="w-full mt-10">
 					<CardContent className="p-4 sm:p-6 space-y-4">
