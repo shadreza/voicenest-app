@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, Clock3, Mic, Repeat, Send } from "lucide-react";
+import { AlertCircle, Clock3, Loader2, Mic, Repeat, Send } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
@@ -14,6 +14,7 @@ export default function Home() {
 	const [recordingTime, setRecordingTime] = useState(0);
 	const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
 	const [showCountdownNotice, setShowCountdownNotice] = useState(false);
+	const [isLoading, setIsLoading] = useState(false);
 	const [year, setYear] = useState("");
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const audioChunksRef = useRef<Blob[]>([]);
@@ -94,7 +95,7 @@ export default function Home() {
 
 	const handleSend = async () => {
 		if (!audioURL) return;
-
+		setIsLoading(true);
 		try {
 			const data = new FormData();
 			const res = await fetch(audioURL);
@@ -106,6 +107,8 @@ export default function Home() {
 			alert("Your voice has been sent.");
 		} catch (error) {
 			console.error("Error sending message:", error);
+		} finally {
+			setIsLoading(false);
 		}
 	};
 
@@ -144,7 +147,7 @@ export default function Home() {
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
 					transition={{ delay: 0.7 }}
-					className="text-muted-foreground animate-pulse">
+					className="text-muted-foreground">
 					Maximum recording time: {formatDuration(MAX_DURATION_SEC)}
 				</motion.p>
 
@@ -162,16 +165,29 @@ export default function Home() {
 							)}
 						</AnimatePresence>
 
-						{audioURL && (
+						{isLoading ? (
 							<motion.div
-								initial={{ opacity: 0, scale: 0.95 }}
-								animate={{ opacity: 1, scale: 1 }}
-								className="w-full">
-								<audio controls className="w-full">
-									<source src={audioURL} type="audio/webm" />
-									Your browser does not support the audio element.
-								</audio>
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								exit={{ opacity: 0 }}
+								className="flex flex-col items-center justify-center text-center space-y-2 py-6 animate-pulse text-muted-foreground">
+								<Loader2 size={24} className="animate-spin" />
+								<p className="text-base font-medium">
+									Please wait, your voice is being heard...
+								</p>
 							</motion.div>
+						) : (
+							audioURL && (
+								<motion.div
+									initial={{ opacity: 0, scale: 0.95 }}
+									animate={{ opacity: 1, scale: 1 }}
+									className="w-full">
+									<audio controls className="w-full">
+										<source src={audioURL} type="audio/webm" />
+										Your browser does not support the audio element.
+									</audio>
+								</motion.div>
+							)
 						)}
 
 						<div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
@@ -180,7 +196,7 @@ export default function Home() {
 									isRecording ? handleStopRecording : handleStartRecording
 								}
 								variant="default"
-								className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center">
+								className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center cursor-pointer">
 								{isRecording ? (
 									<>
 										<Clock3 size={18} /> Stop ({recordingTime}s)
@@ -198,9 +214,9 @@ export default function Home() {
 
 							<Button
 								onClick={handleSend}
-								disabled={!audioURL}
+								disabled={!audioURL || isLoading}
 								variant="secondary"
-								className="text-lg px-6 py-3 rounded-2xl flex gap-2 items-center">
+								className="text-lg px-6 py-3 rounded-2xl flex gap-2 items-center cursor-pointer">
 								<Send size={18} /> Send Voice
 							</Button>
 						</div>
