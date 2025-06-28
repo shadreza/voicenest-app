@@ -26,7 +26,7 @@ export default function Home() {
 	}, []);
 
 	const MAX_DURATION_SEC = 60;
-	const BE_URL = "https://yqg72vu9yk.execute-api.ap-south-1.amazonaws.com";
+	const BE_URL = "https://xajona2jla.execute-api.ap-south-1.amazonaws.com";
 
 	const formatDuration = (seconds: number) => {
 		const mins = Math.floor(seconds / 60);
