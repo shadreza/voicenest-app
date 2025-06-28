@@ -18,6 +18,7 @@ export default function Home() {
 	const [year, setYear] = useState("");
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const audioChunksRef = useRef<Blob[]>([]);
+	const streamRef = useRef<MediaStream | null>(null);
 
 	useEffect(() => {
 		if (typeof window !== "undefined") {
@@ -39,46 +40,178 @@ export default function Home() {
 		return `${secs} seconds`;
 	};
 
+	// Create proper WAV file with PCM 16-bit encoding
+	const createWavFile = (audioBuffer: AudioBuffer): Blob => {
+		const length = audioBuffer.length;
+		const numberOfChannels = 1; // Force mono
+		const sampleRate = 16000; // 16kHz sample rate as recommended
+		const bitsPerSample = 16;
+
+		// Resample to 16kHz mono if needed
+		let channelData: Float32Array;
+		if (audioBuffer.numberOfChannels > 1) {
+			// Mix down to mono
+			const left = audioBuffer.getChannelData(0);
+			const right =
+				audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : left;
+			channelData = new Float32Array(length);
+			for (let i = 0; i < length; i++) {
+				channelData[i] = (left[i] + right[i]) / 2;
+			}
+		} else {
+			channelData = audioBuffer.getChannelData(0);
+		}
+
+		// Resample if necessary (basic resampling)
+		let finalData: Float32Array;
+		if (audioBuffer.sampleRate !== sampleRate) {
+			const ratio = audioBuffer.sampleRate / sampleRate;
+			const newLength = Math.floor(length / ratio);
+			finalData = new Float32Array(newLength);
+			for (let i = 0; i < newLength; i++) {
+				const srcIndex = Math.floor(i * ratio);
+				finalData[i] = channelData[srcIndex];
+			}
+		} else {
+			finalData = channelData;
+		}
+
+		const finalLength = finalData.length;
+		const buffer = new ArrayBuffer(44 + finalLength * 2);
+		const view = new DataView(buffer);
+
+		// Write WAV header
+		const writeString = (offset: number, string: string) => {
+			for (let i = 0; i < string.length; i++) {
+				view.setUint8(offset + i, string.charCodeAt(i));
+			}
+		};
+
+		// RIFF chunk descriptor
+		writeString(0, "RIFF");
+		view.setUint32(4, 36 + finalLength * 2, true); // File size - 8
+		writeString(8, "WAVE");
+
+		// FMT sub-chunk
+		writeString(12, "fmt ");
+		view.setUint32(16, 16, true); // Subchunk1Size for PCM
+		view.setUint16(20, 1, true); // AudioFormat (PCM = 1)
+		view.setUint16(22, numberOfChannels, true); // NumChannels
+		view.setUint32(24, sampleRate, true); // SampleRate
+		view.setUint32(
+			28,
+			(sampleRate * numberOfChannels * bitsPerSample) / 8,
+			true
+		); // ByteRate
+		view.setUint16(32, (numberOfChannels * bitsPerSample) / 8, true); // BlockAlign
+		view.setUint16(34, bitsPerSample, true); // BitsPerSample
+
+		// Data sub-chunk
+		writeString(36, "data");
+		view.setUint32(40, finalLength * 2, true); // Subchunk2Size
+
+		// Convert float samples to 16-bit PCM
+		let offset = 44;
+		for (let i = 0; i < finalLength; i++) {
+			const sample = Math.max(-1, Math.min(1, finalData[i]));
+			const pcmSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+			view.setInt16(offset, pcmSample, true);
+			offset += 2;
+		}
+
+		return new Blob([buffer], { type: "audio/wav" });
+	};
+
 	const handleStartRecording = async () => {
 		if (!navigator.mediaDevices || !window.MediaRecorder) {
 			alert("Your browser does not support voice recording.");
 			return;
 		}
 
-		const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-		const mediaRecorder = new MediaRecorder(stream);
-		mediaRecorderRef.current = mediaRecorder;
-		audioChunksRef.current = [];
-
-		mediaRecorder.ondataavailable = (event) => {
-			audioChunksRef.current.push(event.data);
-		};
-
-		mediaRecorder.onstop = () => {
-			const audioBlob = new Blob(audioChunksRef.current, {
-				type: "audio/webm",
+		try {
+			// Request high-quality audio stream
+			const stream = await navigator.mediaDevices.getUserMedia({
+				audio: {
+					sampleRate: 48000, // Start with high quality, we'll downsample
+					channelCount: 2, // Stereo, we'll convert to mono
+					echoCancellation: true,
+					noiseSuppression: true,
+					autoGainControl: true,
+				},
 			});
-			const url = URL.createObjectURL(audioBlob);
-			setAudioURL(url);
-		};
 
-		mediaRecorder.start();
-		setIsRecording(true);
-		setRecordingTime(0);
-		setShowCountdownNotice(false);
-		const t = setInterval(() => {
-			setRecordingTime((prev) => {
-				if (prev >= MAX_DURATION_SEC) {
-					handleStopRecording();
-					return prev;
+			streamRef.current = stream;
+
+			// Use the best available format for recording
+			let mimeType = "audio/webm;codecs=opus";
+			if (MediaRecorder.isTypeSupported("audio/webm;codecs=pcm")) {
+				mimeType = "audio/webm;codecs=pcm";
+			} else if (MediaRecorder.isTypeSupported("audio/wav")) {
+				mimeType = "audio/wav";
+			}
+
+			const mediaRecorder = new MediaRecorder(stream, { mimeType });
+			mediaRecorderRef.current = mediaRecorder;
+			audioChunksRef.current = [];
+
+			mediaRecorder.ondataavailable = (event) => {
+				if (event.data.size > 0) {
+					audioChunksRef.current.push(event.data);
 				}
-				if (prev === MAX_DURATION_SEC - 10) {
-					setShowCountdownNotice(true);
+			};
+
+			mediaRecorder.onstop = async () => {
+				const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+
+				try {
+					// Convert to proper WAV format
+					const arrayBuffer = await audioBlob.arrayBuffer();
+					const audioContext = new AudioContext();
+					const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+					// Create properly formatted WAV file
+					const wavBlob = createWavFile(audioBuffer);
+					const url = URL.createObjectURL(wavBlob);
+					setAudioURL(url);
+
+					// Close audio context to free resources
+					await audioContext.close();
+				} catch (error) {
+					console.error("Error processing audio:", error);
+					alert("Error processing audio. Please try again.");
 				}
-				return prev + 1;
-			});
-		}, 1000);
-		setTimer(t);
+
+				// Stop all tracks to free the microphone
+				if (streamRef.current) {
+					streamRef.current.getTracks().forEach((track) => track.stop());
+					streamRef.current = null;
+				}
+			};
+
+			mediaRecorder.start(1000); // Collect data every second
+			setIsRecording(true);
+			setRecordingTime(0);
+			setShowCountdownNotice(false);
+
+			const t = setInterval(() => {
+				setRecordingTime((prev) => {
+					if (prev >= MAX_DURATION_SEC) {
+						handleStopRecording();
+						return prev;
+					}
+					if (prev === MAX_DURATION_SEC - 10) {
+						setShowCountdownNotice(true);
+					}
+					return prev + 1;
+				});
+			}, 1000);
+			setTimer(t);
+		} catch (error) {
+			console.error("Error starting recording:", error);
+			alert(
+				"Failed to start recording. Please check your microphone permissions."
+			);
+		}
 	};
 
 	const handleStopRecording = () => {
@@ -89,8 +222,17 @@ export default function Home() {
 			mediaRecorderRef.current.stop();
 			setIsRecording(false);
 		}
-		if (timer) clearInterval(timer);
+		if (timer) {
+			clearInterval(timer);
+			setTimer(null);
+		}
 		setShowCountdownNotice(false);
+
+		// Stop all tracks to free the microphone
+		if (streamRef.current) {
+			streamRef.current.getTracks().forEach((track) => track.stop());
+			streamRef.current = null;
+		}
 	};
 
 	const handleSend = async () => {
@@ -98,42 +240,72 @@ export default function Home() {
 		setIsLoading(true);
 
 		try {
-			// Step 1: Fetch audio blob from recorded URL
-			const res = await fetch(audioURL);
-			const blob = await res.blob();
+			// Fetch the WAV blob
+			const response = await fetch(audioURL);
+			const blob = await response.blob();
+
+			// Verify it's a WAV file
+			if (!blob.type.includes("wav")) {
+				throw new Error("Audio format is not WAV");
+			}
+
+			console.log(
+				`Sending WAV file - Size: ${blob.size} bytes, Type: ${blob.type}`
+			);
+
+			// Convert to ArrayBuffer and then to base64
 			const arrayBuffer = await blob.arrayBuffer();
 			const uint8Array = new Uint8Array(arrayBuffer);
 
-			// Step 2: Convert to base64
-			const base64Audio = btoa(
-				uint8Array.reduce((data, byte) => data + String.fromCharCode(byte), "")
-			);
+			// Create base64 string
+			let binary = "";
+			const chunkSize = 0x8000; // 32KB chunks to avoid call stack issues
+			for (let i = 0; i < uint8Array.length; i += chunkSize) {
+				const chunk = uint8Array.subarray(i, i + chunkSize);
+				binary += String.fromCharCode.apply(null, Array.from(chunk));
+			}
+			const base64Audio = btoa(binary);
 
-			// Step 3: Send to Lambda API
-			const response = await axios.post(`${BE_URL}/voice`, base64Audio, {
+			console.log(`Base64 encoded audio length: ${base64Audio.length}`);
+
+			// Send to Lambda API
+			const apiResponse = await axios.post(`${BE_URL}/voice`, base64Audio, {
 				headers: {
 					"Content-Type": "application/octet-stream",
 				},
-				transformRequest: [(data) => data], // prevent axios from modifying the raw base64
+				timeout: 60000, // 60 second timeout
 			});
 
-			// Step 4: Get the returned base64 audio reply
-			const audioBase64 = response.data.trim().replace(/\s/g, "");
-
-			// Step 5: Create audio URL and play
+			// Handle the audio response
+			const audioBase64 = apiResponse.data.trim();
 			const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
 			const audio = new Audio(audioUrl);
-			audio.play();
 
-			console.log("Response audio played.");
-			alert("Your voice has been processed and replied to!");
+			await audio.play();
+			console.log("Response audio played successfully.");
 		} catch (error) {
 			console.error("Error sending voice:", error);
-			alert("Error: Could not process your voice.");
+			if (error.response) {
+				console.error("Response data:", error.response.data);
+				console.error("Response status:", error.response.status);
+			}
+			alert("Error: Could not process your voice. Please try again.");
 		} finally {
 			setIsLoading(false);
 		}
 	};
+
+	// Cleanup on unmount
+	useEffect(() => {
+		return () => {
+			if (streamRef.current) {
+				streamRef.current.getTracks().forEach((track) => track.stop());
+			}
+			if (timer) {
+				clearInterval(timer);
+			}
+		};
+	}, [timer]);
 
 	return (
 		<div className="grid grid-rows-[auto_1fr_auto] items-center justify-items-center min-h-screen p-6 sm:p-12 font-sans bg-[#fefcf8]">
@@ -206,7 +378,7 @@ export default function Home() {
 									animate={{ opacity: 1, scale: 1 }}
 									className="w-full">
 									<audio controls className="w-full">
-										<source src={audioURL} type="audio/webm" />
+										<source src={audioURL} type="audio/wav" />
 										Your browser does not support the audio element.
 									</audio>
 								</motion.div>
