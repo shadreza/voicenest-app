@@ -26,7 +26,7 @@ export default function Home() {
 	}, []);
 
 	const MAX_DURATION_SEC = 60;
-	const BE_URL = "https://your-api-gateway-url";
+	const BE_URL = "https://yqg72vu9yk.execute-api.ap-south-1.amazonaws.com";
 
 	const formatDuration = (seconds: number) => {
 		const mins = Math.floor(seconds / 60);
@@ -96,17 +96,40 @@ export default function Home() {
 	const handleSend = async () => {
 		if (!audioURL) return;
 		setIsLoading(true);
+
 		try {
-			const data = new FormData();
+			// Step 1: Fetch audio blob from recorded URL
 			const res = await fetch(audioURL);
 			const blob = await res.blob();
-			data.append("audio", blob, "recording.webm");
+			const arrayBuffer = await blob.arrayBuffer();
+			const uint8Array = new Uint8Array(arrayBuffer);
 
-			const response = await axios.post(BE_URL, data);
-			console.log("Response:", response.data);
-			alert("Your voice has been sent!");
+			// Step 2: Convert to base64
+			const base64Audio = btoa(
+				uint8Array.reduce((data, byte) => data + String.fromCharCode(byte), "")
+			);
+
+			// Step 3: Send to Lambda API
+			const response = await axios.post(`${BE_URL}/voice`, base64Audio, {
+				headers: {
+					"Content-Type": "application/octet-stream",
+				},
+				transformRequest: [(data) => data], // prevent axios from modifying the raw base64
+			});
+
+			// Step 4: Get the returned base64 audio reply
+			const audioBase64 = response.data.trim().replace(/\s/g, "");
+
+			// Step 5: Create audio URL and play
+			const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
+			const audio = new Audio(audioUrl);
+			audio.play();
+
+			console.log("Response audio played.");
+			alert("Your voice has been processed and replied to!");
 		} catch (error) {
 			console.error("Error sending voice:", error);
+			alert("Error: Could not process your voice.");
 		} finally {
 			setIsLoading(false);
 		}
