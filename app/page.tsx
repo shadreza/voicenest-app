@@ -110,6 +110,7 @@ export default function AudioRecorder() {
 		} catch (error) {
 			console.error("Failed to start recording:", error);
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	// Stop recording
@@ -278,13 +279,14 @@ export default function AudioRecorder() {
 			if (streamRef.current) {
 				streamRef.current
 					.getTracks()
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
 					.forEach((track: { stop: () => any }) => track.stop());
 			}
 			if (audioURL) {
 				URL.revokeObjectURL(audioURL);
 			}
 		};
-	}, [initializeRecorder]);
+	}, [audioURL, initializeRecorder]);
 
 	return (
 		<div className="grid grid-rows-[auto_1fr_auto] items-center justify-items-center min-h-screen p-6 sm:p-12 font-sans bg-[#fefcf8]">
