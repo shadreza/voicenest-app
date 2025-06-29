@@ -1,5 +1,6 @@
 "use client";
 
+import SupportedLanguagesTicker from "@/components/SupportedLanguagesTicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AnimatePresence, motion } from "framer-motion";
@@ -380,6 +381,8 @@ export default function AudioRecorder() {
 					</CardContent>
 				</Card>
 			</main>
+
+			<SupportedLanguagesTicker />
 
 			<footer className="mt-12 text-sm text-muted-foreground text-center">
 				VoiceNest © {year} — Made with empathy.
