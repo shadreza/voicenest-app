@@ -13,6 +13,8 @@
     "axios": "^1.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "extendable-media-recorder": "^9.2.27",
+    "extendable-media-recorder-wav-encoder": "^7.0.129",
     "framer-motion": "^12.19.2",
     "lucide-react": "^0.525.0",
     "next": "15.3.4",

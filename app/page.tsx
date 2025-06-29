@@ -2,157 +2,70 @@
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, Clock3, Loader2, Mic, Repeat, Send } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-export default function Home() {
+const MAX_DURATION_SEC = 60; // 5 minutes
+
+export default function AudioRecorder() {
 	const [isRecording, setIsRecording] = useState(false);
-	const [audioURL, setAudioURL] = useState<string | null>(null);
-	const [recordingTime, setRecordingTime] = useState(0);
-	const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
-	const [showCountdownNotice, setShowCountdownNotice] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
-	const [year, setYear] = useState("");
-	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-	const audioChunksRef = useRef<Blob[]>([]);
-	const streamRef = useRef<MediaStream | null>(null);
+	const [isInitialized, setIsInitialized] = useState(false);
+	const [audioURL, setAudioURL] = useState(null);
+	const [audioBlob, setAudioBlob] = useState(null);
+	const [recordingTime, setRecordingTime] = useState(0);
+	const [showCountdownNotice, setShowCountdownNotice] = useState(false);
 
-	useEffect(() => {
-		if (typeof window !== "undefined") {
-			setYear(new Date().getFullYear().toString());
-		}
-	}, []);
+	const mediaRecorderRef = useRef(null);
+	const audioChunksRef = useRef([]);
+	const timerRef = useRef(null);
+	const streamRef = useRef(null);
 
-	const MAX_DURATION_SEC = 60;
-	const BE_URL = "https://xajona2jla.execute-api.ap-south-1.amazonaws.com";
+	const year = new Date().getFullYear();
 
+	// Format duration helper
 	const formatDuration = (seconds: number) => {
 		const mins = Math.floor(seconds / 60);
 		const secs = seconds % 60;
-		if (mins > 0) {
-			return `${mins} min${mins > 1 ? "s" : ""}${
-				secs > 0 ? ` ${secs} sec` : ""
-			}`;
-		}
-		return `${secs} seconds`;
+		return `${mins}:${secs.toString().padStart(2, "0")}`;
 	};
 
-	// Create proper WAV file with PCM 16-bit encoding
-	const createWavFile = (audioBuffer: AudioBuffer): Blob => {
-		const length = audioBuffer.length;
-		const numberOfChannels = 1; // Force mono
-		const sampleRate = 16000; // 16kHz sample rate as recommended
-		const bitsPerSample = 16;
-
-		// Resample to 16kHz mono if needed
-		let channelData: Float32Array;
-		if (audioBuffer.numberOfChannels > 1) {
-			// Mix down to mono
-			const left = audioBuffer.getChannelData(0);
-			const right =
-				audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : left;
-			channelData = new Float32Array(length);
-			for (let i = 0; i < length; i++) {
-				channelData[i] = (left[i] + right[i]) / 2;
-			}
-		} else {
-			channelData = audioBuffer.getChannelData(0);
-		}
-
-		// Resample if necessary (basic resampling)
-		let finalData: Float32Array;
-		if (audioBuffer.sampleRate !== sampleRate) {
-			const ratio = audioBuffer.sampleRate / sampleRate;
-			const newLength = Math.floor(length / ratio);
-			finalData = new Float32Array(newLength);
-			for (let i = 0; i < newLength; i++) {
-				const srcIndex = Math.floor(i * ratio);
-				finalData[i] = channelData[srcIndex];
-			}
-		} else {
-			finalData = channelData;
-		}
-
-		const finalLength = finalData.length;
-		const buffer = new ArrayBuffer(44 + finalLength * 2);
-		const view = new DataView(buffer);
-
-		// Write WAV header
-		const writeString = (offset: number, string: string) => {
-			for (let i = 0; i < string.length; i++) {
-				view.setUint8(offset + i, string.charCodeAt(i));
-			}
-		};
-
-		// RIFF chunk descriptor
-		writeString(0, "RIFF");
-		view.setUint32(4, 36 + finalLength * 2, true); // File size - 8
-		writeString(8, "WAVE");
-
-		// FMT sub-chunk
-		writeString(12, "fmt ");
-		view.setUint32(16, 16, true); // Subchunk1Size for PCM
-		view.setUint16(20, 1, true); // AudioFormat (PCM = 1)
-		view.setUint16(22, numberOfChannels, true); // NumChannels
-		view.setUint32(24, sampleRate, true); // SampleRate
-		view.setUint32(
-			28,
-			(sampleRate * numberOfChannels * bitsPerSample) / 8,
-			true
-		); // ByteRate
-		view.setUint16(32, (numberOfChannels * bitsPerSample) / 8, true); // BlockAlign
-		view.setUint16(34, bitsPerSample, true); // BitsPerSample
-
-		// Data sub-chunk
-		writeString(36, "data");
-		view.setUint32(40, finalLength * 2, true); // Subchunk2Size
-
-		// Convert float samples to 16-bit PCM
-		let offset = 44;
-		for (let i = 0; i < finalLength; i++) {
-			const sample = Math.max(-1, Math.min(1, finalData[i]));
-			const pcmSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-			view.setInt16(offset, pcmSample, true);
-			offset += 2;
-		}
-
-		return new Blob([buffer], { type: "audio/wav" });
-	};
-
-	const handleStartRecording = async () => {
-		if (!navigator.mediaDevices || !window.MediaRecorder) {
-			alert("Your browser does not support voice recording.");
-			return;
-		}
-
+	// Initialize audio recorder
+	const initializeRecorder = useCallback(async () => {
 		try {
-			// Request high-quality audio stream
 			const stream = await navigator.mediaDevices.getUserMedia({
 				audio: {
-					sampleRate: 48000, // Start with high quality, we'll downsample
-					channelCount: 2, // Stereo, we'll convert to mono
 					echoCancellation: true,
 					noiseSuppression: true,
-					autoGainControl: true,
+					sampleRate: 44100,
 				},
 			});
 
 			streamRef.current = stream;
+			setIsInitialized(true);
+		} catch (error) {
+			console.error("Failed to initialize audio recorder:", error);
+			alert("Microphone access is required for voice recording.");
+		}
+	}, []);
 
-			// Use the best available format for recording
-			let mimeType = "audio/webm;codecs=opus";
-			if (MediaRecorder.isTypeSupported("audio/webm;codecs=pcm")) {
-				mimeType = "audio/webm;codecs=pcm";
-			} else if (MediaRecorder.isTypeSupported("audio/wav")) {
-				mimeType = "audio/wav";
-			}
+	// Start recording
+	const handleStartRecording = useCallback(async () => {
+		if (!streamRef.current) {
+			await initializeRecorder();
+			return;
+		}
 
-			const mediaRecorder = new MediaRecorder(stream, { mimeType });
-			mediaRecorderRef.current = mediaRecorder;
+		try {
 			audioChunksRef.current = [];
+
+			const mediaRecorder = new MediaRecorder(streamRef.current, {
+				mimeType: "audio/webm;codecs=opus", // Fallback to WAV conversion
+			});
+
+			mediaRecorderRef.current = mediaRecorder;
 
 			mediaRecorder.ondataavailable = (event) => {
 				if (event.data.size > 0) {
@@ -161,151 +74,217 @@ export default function Home() {
 			};
 
 			mediaRecorder.onstop = async () => {
-				const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+				const audioBlob = new Blob(audioChunksRef.current, {
+					type: "audio/webm;codecs=opus",
+				});
 
-				try {
-					// Convert to proper WAV format
-					const arrayBuffer = await audioBlob.arrayBuffer();
-					const audioContext = new AudioContext();
-					const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-					// Create properly formatted WAV file
-					const wavBlob = createWavFile(audioBuffer);
-					const url = URL.createObjectURL(wavBlob);
-					setAudioURL(url);
-
-					// Close audio context to free resources
-					await audioContext.close();
-				} catch (error) {
-					console.error("Error processing audio:", error);
-					alert("Error processing audio. Please try again.");
-				}
-
-				// Stop all tracks to free the microphone
-				if (streamRef.current) {
-					streamRef.current.getTracks().forEach((track) => track.stop());
-					streamRef.current = null;
-				}
+				// Convert to WAV format
+				const wavBlob = await convertToWav(audioBlob);
+				setAudioBlob(wavBlob);
+				setAudioURL(URL.createObjectURL(wavBlob));
 			};
 
-			mediaRecorder.start(1000); // Collect data every second
+			mediaRecorder.start(100); // Collect data every 100ms
 			setIsRecording(true);
 			setRecordingTime(0);
-			setShowCountdownNotice(false);
 
-			const t = setInterval(() => {
+			// Start timer
+			timerRef.current = setInterval(() => {
 				setRecordingTime((prev) => {
-					if (prev >= MAX_DURATION_SEC) {
-						handleStopRecording();
-						return prev;
-					}
-					if (prev === MAX_DURATION_SEC - 10) {
+					const newTime = prev + 1;
+
+					// Show countdown notice in last 10 seconds
+					if (newTime >= MAX_DURATION_SEC - 10 && newTime < MAX_DURATION_SEC) {
 						setShowCountdownNotice(true);
 					}
-					return prev + 1;
+
+					// Auto-stop at max duration
+					if (newTime >= MAX_DURATION_SEC) {
+						handleStopRecording();
+						return MAX_DURATION_SEC;
+					}
+
+					return newTime;
 				});
 			}, 1000);
-			setTimer(t);
 		} catch (error) {
-			console.error("Error starting recording:", error);
-			alert(
-				"Failed to start recording. Please check your microphone permissions."
-			);
+			console.error("Failed to start recording:", error);
 		}
-	};
+	}, []);
 
-	const handleStopRecording = () => {
-		if (
-			mediaRecorderRef.current &&
-			mediaRecorderRef.current.state === "recording"
-		) {
+	// Stop recording
+	const handleStopRecording = useCallback(() => {
+		if (mediaRecorderRef.current && isRecording) {
 			mediaRecorderRef.current.stop();
 			setIsRecording(false);
-		}
-		if (timer) {
-			clearInterval(timer);
-			setTimer(null);
-		}
-		setShowCountdownNotice(false);
+			setShowCountdownNotice(false);
 
-		// Stop all tracks to free the microphone
-		if (streamRef.current) {
-			streamRef.current.getTracks().forEach((track) => track.stop());
-			streamRef.current = null;
+			if (timerRef.current) {
+				clearInterval(timerRef.current);
+				timerRef.current = null;
+			}
 		}
+	}, [isRecording]);
+
+	// Convert WebM to WAV format
+	const convertToWav = async (webmBlob: unknown) => {
+		return new Promise((resolve) => {
+			const reader = new FileReader();
+			reader.onload = async () => {
+				try {
+					const audioContext = new (window.AudioContext ||
+						window.webkitAudioContext)();
+					const audioBuffer = await audioContext.decodeAudioData(reader.result);
+
+					// Convert to WAV
+					const wavBuffer = audioBufferToWav(audioBuffer);
+					const wavBlob = new Blob([wavBuffer], { type: "audio/wav" });
+					resolve(wavBlob);
+				} catch (error) {
+					console.error("WAV conversion failed, using original:", error);
+					resolve(webmBlob); // Fallback to original
+				}
+			};
+			reader.readAsArrayBuffer(webmBlob);
+		});
 	};
 
+	// Convert AudioBuffer to WAV format
+	const audioBufferToWav = (buffer: AudioBuffer) => {
+		const length = buffer.length;
+		const numberOfChannels = buffer.numberOfChannels;
+		const sampleRate = buffer.sampleRate;
+		const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2);
+		const view = new DataView(arrayBuffer);
+
+		// WAV header
+		const writeString = (offset: number, string: string) => {
+			for (let i = 0; i < string.length; i++) {
+				view.setUint8(offset + i, string.charCodeAt(i));
+			}
+		};
+
+		writeString(0, "RIFF");
+		view.setUint32(4, 36 + length * numberOfChannels * 2, true);
+		writeString(8, "WAVE");
+		writeString(12, "fmt ");
+		view.setUint32(16, 16, true);
+		view.setUint16(20, 1, true);
+		view.setUint16(22, numberOfChannels, true);
+		view.setUint32(24, sampleRate, true);
+		view.setUint32(28, sampleRate * numberOfChannels * 2, true);
+		view.setUint16(32, numberOfChannels * 2, true);
+		view.setUint16(34, 16, true);
+		writeString(36, "data");
+		view.setUint32(40, length * numberOfChannels * 2, true);
+
+		// Convert audio data
+		let offset = 44;
+		for (let i = 0; i < length; i++) {
+			for (let channel = 0; channel < numberOfChannels; channel++) {
+				const sample = Math.max(
+					-1,
+					Math.min(1, buffer.getChannelData(channel)[i])
+				);
+				view.setInt16(offset, sample * 0x7fff, true);
+				offset += 2;
+			}
+		}
+
+		return arrayBuffer;
+	};
+
+	// Retry recording
+	const handleRetry = () => {
+		setAudioURL(null);
+		setAudioBlob(null);
+		setRecordingTime(0);
+		setShowCountdownNotice(false);
+	};
+
+	// Send audio to API
 	const handleSend = async () => {
-		if (!audioURL) return;
+		if (!audioBlob) return;
+
 		setIsLoading(true);
 
 		try {
-			// Fetch the WAV blob
-			const response = await fetch(audioURL);
-			const blob = await response.blob();
-
-			// Verify it's a WAV file
-			if (!blob.type.includes("wav")) {
-				throw new Error("Audio format is not WAV");
-			}
-
-			console.log(
-				`Sending WAV file - Size: ${blob.size} bytes, Type: ${blob.type}`
-			);
-
-			// Convert to ArrayBuffer and then to base64
-			const arrayBuffer = await blob.arrayBuffer();
-			const uint8Array = new Uint8Array(arrayBuffer);
-
-			// Create base64 string
-			let binary = "";
-			const chunkSize = 0x8000; // 32KB chunks to avoid call stack issues
-			for (let i = 0; i < uint8Array.length; i += chunkSize) {
-				const chunk = uint8Array.subarray(i, i + chunkSize);
-				binary += String.fromCharCode.apply(null, Array.from(chunk));
-			}
-			const base64Audio = btoa(binary);
-
-			console.log(`Base64 encoded audio length: ${base64Audio.length}`);
-
-			// Send to Lambda API
-			const apiResponse = await axios.post(`${BE_URL}/voice`, base64Audio, {
-				headers: {
-					"Content-Type": "application/octet-stream",
-				},
-				timeout: 60000, // 60 second timeout
+			const formData = new FormData();
+			formData.append("audio", audioBlob, "recording.wav");
+			const API_URL = "https://xajona2jla.execute-api.ap-south-1.amazonaws.com";
+			const response = await fetch(`${API_URL}/voice`, {
+				method: "POST",
+				body: formData,
 			});
 
-			// Handle the audio response
-			const audioBase64 = apiResponse.data.trim();
-			const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
-			const audio = new Audio(audioUrl);
+			console.log("response : ", response);
 
-			await audio.play();
-			console.log("Response audio played successfully.");
-		} catch (error) {
-			console.error("Error sending voice:", error);
-			if (error.response) {
-				console.error("Response data:", error.response.data);
-				console.error("Response status:", error.response.status);
+			if (response.ok) {
+				// Check if the response is audio (MP3)
+				const contentType = response.headers.get("content-type");
+
+				if (contentType && contentType.includes("audio/mpeg")) {
+					// Handle audio response
+					const audioBlob = await response.blob();
+
+					// Create audio URL and play it
+					const audioUrl = URL.createObjectURL(audioBlob);
+					const audio = new Audio(audioUrl);
+
+					// Play the audio
+					audio
+						.play()
+						.then(() => {
+							console.log("Audio playback started");
+							alert("Voice response received and playing!");
+						})
+						.catch((error) => {
+							console.error("Error playing audio:", error);
+							alert("Received audio but couldn't play it");
+						});
+
+					// Optional: Clean up the URL after audio ends
+					audio.addEventListener("ended", () => {
+						URL.revokeObjectURL(audioUrl);
+					});
+				} else {
+					// Handle JSON response (in case your API sometimes returns JSON)
+					const result = await response.json();
+					console.log("Upload successful:", result);
+					alert("Voice sent successfully!");
+				}
+
+				handleRetry(); // Reset for new recording
+			} else {
+				throw new Error(`Upload failed with status: ${response.status}`);
 			}
-			alert("Error: Could not process your voice. Please try again.");
+		} catch (error) {
+			console.error("Failed to send audio:", error);
+			alert("Failed to send voice. Please try again.");
 		} finally {
 			setIsLoading(false);
 		}
 	};
 
-	// Cleanup on unmount
+	// Initialize on component mount
 	useEffect(() => {
+		initializeRecorder();
+
 		return () => {
-			if (streamRef.current) {
-				streamRef.current.getTracks().forEach((track) => track.stop());
+			// Cleanup
+			if (timerRef.current) {
+				clearInterval(timerRef.current);
 			}
-			if (timer) {
-				clearInterval(timer);
+			if (streamRef.current) {
+				streamRef.current
+					.getTracks()
+					.forEach((track: { stop: () => any }) => track.stop());
+			}
+			if (audioURL) {
+				URL.revokeObjectURL(audioURL);
 			}
 		};
-	}, [timer]);
+	}, [initializeRecorder]);
 
 	return (
 		<div className="grid grid-rows-[auto_1fr_auto] items-center justify-items-center min-h-screen p-6 sm:p-12 font-sans bg-[#fefcf8]">
@@ -331,6 +310,7 @@ export default function Home() {
 					className="text-3xl sm:text-4xl font-bold text-[#2c2c2c] tracking-tight">
 					Speak Your Heart
 				</motion.h1>
+
 				<motion.p
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
@@ -338,6 +318,7 @@ export default function Home() {
 					className="text-lg text-muted-foreground">
 					Tap to record your voice. Let your feelings be heard.
 				</motion.p>
+
 				<motion.p
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
@@ -345,6 +326,16 @@ export default function Home() {
 					className="text-muted-foreground">
 					Maximum recording time: {formatDuration(MAX_DURATION_SEC)}
 				</motion.p>
+
+				{!isInitialized && (
+					<motion.div
+						initial={{ opacity: 0 }}
+						animate={{ opacity: 1 }}
+						className="bg-yellow-100 text-yellow-800 p-3 rounded-xl flex items-center justify-center gap-2 font-medium">
+						<Loader2 size={16} className="animate-spin" />
+						Initializing recorder...
+					</motion.div>
+				)}
 
 				<Card className="w-full mt-10">
 					<CardContent className="p-4 sm:p-6 space-y-4">
@@ -378,7 +369,10 @@ export default function Home() {
 									animate={{ opacity: 1, scale: 1 }}
 									className="w-full">
 									<audio controls className="w-full">
-										<source src={audioURL} type="audio/wav" />
+										<source
+											src={audioURL}
+											type={audioBlob?.type || "audio/wav"}
+										/>
 										Your browser does not support the audio element.
 									</audio>
 								</motion.div>
@@ -388,17 +382,22 @@ export default function Home() {
 						<div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
 							<Button
 								onClick={
-									isRecording ? handleStopRecording : handleStartRecording
+									isRecording
+										? handleStopRecording
+										: audioURL
+										? handleRetry
+										: handleStartRecording
 								}
-								variant="default"
-								className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center cursor-pointer">
+								disabled={!isInitialized}
+								size="lg"
+								className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center">
 								{isRecording ? (
 									<>
 										<Clock3 size={18} /> Stop ({recordingTime}s)
 									</>
 								) : audioURL ? (
 									<>
-										<Repeat size={18} /> Retry
+										<Repeat size={18} /> Record Again
 									</>
 								) : (
 									<>
@@ -409,9 +408,10 @@ export default function Home() {
 
 							<Button
 								onClick={handleSend}
-								disabled={!audioURL || isLoading}
+								disabled={!audioBlob || isLoading || !isInitialized}
 								variant="secondary"
-								className="text-lg px-6 py-3 rounded-2xl flex gap-2 items-center cursor-pointer">
+								size="lg"
+								className="text-lg px-6 py-3 rounded-2xl flex gap-2 items-center">
 								<Send size={18} /> Send Voice
 							</Button>
 						</div>
