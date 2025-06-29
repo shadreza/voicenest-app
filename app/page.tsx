@@ -36,7 +36,11 @@ export default function AudioRecorder() {
 	const formatDuration = (seconds: number): string => {
 		const mins = Math.floor(seconds / 60);
 		const secs = seconds % 60;
-		return `${mins}:${secs.toString().padStart(2, "0")}`;
+
+		if (secs === 0) {
+			return `${mins} min`;
+		}
+		return `${mins} min ${secs} sec`;
 	};
 
 	const initializeRecorder = useCallback(async (): Promise<void> => {
@@ -67,6 +71,10 @@ export default function AudioRecorder() {
 			}
 		}
 	}, [isRecording]);
+
+	useEffect(() => {
+		if (recordingTime >= MAX_DURATION_SEC) handleStopRecording();
+	}, [recordingTime, handleStopRecording]);
 
 	const handleStartRecording = useCallback(async (): Promise<void> => {
 		if (!streamRef.current) {
@@ -313,7 +321,8 @@ export default function AudioRecorder() {
 										animate={{ opacity: 1 }}
 										exit={{ opacity: 0 }}
 										className="bg-red-100 text-red-900 p-3 rounded-xl flex items-center justify-center gap-2 font-semibold shadow-sm">
-										<AlertCircle size={20} /> Last 10 seconds remaining!
+										<AlertCircle size={20} />
+										{`${MAX_DURATION_SEC - recordingTime} seconds remaining`}
 									</motion.div>
 								)}
 							</AnimatePresence>
