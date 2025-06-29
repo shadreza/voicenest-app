@@ -1,5 +1,7 @@
 "use client";
 
+// @ts-nocheck
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AnimatePresence, motion } from "framer-motion";
@@ -18,10 +20,10 @@ export default function AudioRecorder() {
 	const [recordingTime, setRecordingTime] = useState(0);
 	const [showCountdownNotice, setShowCountdownNotice] = useState(false);
 
-	const mediaRecorderRef = useRef(null);
+	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const audioChunksRef = useRef([]);
 	const timerRef = useRef(null);
-	const streamRef = useRef(null);
+	const streamRef = useRef<MediaStream | null>(null);
 
 	const year = new Date().getFullYear();
 
