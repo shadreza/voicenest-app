@@ -220,6 +220,14 @@ export default function AudioRecorder() {
 
 				if (langHeader)
 					setDetectedLanguage(LANGUAGE_CODE_TO_LABEL_MAP[langHeader]);
+
+				setTimeout(() => {
+					if (responseAudioRef.current) {
+						responseAudioRef.current.play().catch((err) => {
+							console.warn("Autoplay failed:", err);
+						});
+					}
+				}, 100);
 			} else {
 				const result = await response.json();
 				alert("Voice sent successfully!");
@@ -251,8 +259,8 @@ export default function AudioRecorder() {
 	}, [audioURL, initializeRecorder]);
 
 	return (
-		<div className="grid grid-rows-[auto_1fr_auto] items-center justify-items-center min-h-screen p-6 sm:p-12 font-sans bg-[#fefcf8]">
-			<main className="flex flex-col gap-6 items-center w-full max-w-2xl text-center">
+		<div className="relative grid grid-rows-[auto_1fr_auto] items-center justify-items-center min-h-screen p-6 sm:p-12 font-sans bg-[#faf9f7] text-gray-800">
+			<main className="flex flex-col gap-6 items-center w-full max-w-2xl text-center z-10">
 				<Image
 					className="dark:invert mb-10"
 					src="/voicenest-logo.png"
@@ -261,120 +269,154 @@ export default function AudioRecorder() {
 					height={40}
 					priority
 				/>
-				<h1 className="text-3xl sm:text-4xl font-bold text-[#2c2c2c] tracking-tight">
+				<h1 className="text-3xl sm:text-4xl font-extrabold text-[#1a1a1a] tracking-tight">
 					Speak Your Heart
 				</h1>
-				<p className="text-lg text-muted-foreground">
+				<p className="text-lg text-gray-600">
 					Tap to record your voice. Let your feelings be heard.
 				</p>
-				<p className="text-muted-foreground">
+				<p className="text-gray-500">
 					Maximum recording time: {formatDuration(MAX_DURATION_SEC)}
 				</p>
 
 				{!isInitialized && (
-					<div className="bg-yellow-100 text-yellow-800 p-3 rounded-xl flex items-center justify-center gap-2 font-medium">
+					<div className="bg-yellow-100 text-yellow-900 p-3 rounded-xl flex items-center justify-center gap-2 font-semibold shadow-md">
 						<Loader2 size={16} className="animate-spin" /> Initializing
 						recorder...
 					</div>
 				)}
 
-				<Card className="w-full mt-10">
-					<CardContent className="p-4 sm:p-6 space-y-4">
-						<AnimatePresence>
-							{showCountdownNotice && (
-								<motion.div
-									initial={{ opacity: 0 }}
-									animate={{ opacity: 1 }}
-									exit={{ opacity: 0 }}
-									className="bg-red-100 text-red-800 p-3 rounded-xl flex items-center justify-center gap-2 font-semibold">
-									<AlertCircle size={20} /> Last 10 seconds remaining!
-								</motion.div>
-							)}
-						</AnimatePresence>
-
-						{audioURL && (
-							<div className="space-y-3">
-								<p className="text-sm font-medium text-gray-600">Your voice:</p>
-								<audio
-									ref={userAudioRef}
-									onPlay={handleUserPlay}
-									controls
-									className="w-full bg-gray-100 rounded-md">
-									<source src={audioURL} />
-								</audio>
-							</div>
+				{/* Localized Loading Overlay Wrapper */}
+				<div className="relative w-full mt-10">
+					<AnimatePresence>
+						{isLoading && (
+							<motion.div
+								key="loading-overlay"
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 0.5 }}
+								exit={{ opacity: 0 }}
+								className="absolute inset-0 bg-black z-20 flex flex-col items-center justify-center gap-4 rounded-xl">
+								<Loader2 size={36} className="animate-spin text-white" />
+								<p className="text-white text-sm font-semibold">
+									Processing your voice...
+								</p>
+							</motion.div>
 						)}
+					</AnimatePresence>
 
-						{responseAudioURL && (
-							<div className="space-y-3">
-								<p className="text-sm font-medium text-gray-600">Response:</p>
-								<audio
-									ref={responseAudioRef}
-									onPlay={handleResponsePlay}
-									controls
-									className="w-full bg-yellow-100 rounded-md">
-									<source src={responseAudioURL} />
-								</audio>
-							</div>
-						)}
-
-						{detectedLanguage && (
-							<p className="text-sm italic text-muted-foreground mt-2">
-								Detected language: <strong>{detectedLanguage}</strong>
-							</p>
-						)}
-
-						<div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-							<Button
-								onClick={
-									isRecording
-										? handleStopRecording
-										: audioURL
-										? handleRetry
-										: handleStartRecording
-								}
-								disabled={!isInitialized}
-								size="lg"
-								className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center cursor-pointer">
-								{isRecording ? (
-									<>
-										<Clock3 size={18} /> Stop ({recordingTime}s)
-									</>
-								) : audioURL ? (
-									<>
-										<Repeat size={18} /> Record Again
-									</>
-								) : (
-									<>
-										<Mic size={18} /> Start Talking
-									</>
+					<Card className="w-full shadow-lg border border-gray-200 relative z-10">
+						<CardContent className="p-6 space-y-5">
+							<AnimatePresence>
+								{showCountdownNotice && (
+									<motion.div
+										initial={{ opacity: 0 }}
+										animate={{ opacity: 1 }}
+										exit={{ opacity: 0 }}
+										className="bg-red-100 text-red-900 p-3 rounded-xl flex items-center justify-center gap-2 font-semibold shadow-sm">
+										<AlertCircle size={20} /> Last 10 seconds remaining!
+									</motion.div>
 								)}
-							</Button>
+							</AnimatePresence>
 
-							<Button
-								onClick={handleSend}
-								disabled={!audioBlob || isLoading || !isInitialized}
-								variant="secondary"
-								size="lg"
-								className="text-lg px-6 py-3 rounded-2xl flex gap-2 items-center cursor-pointer">
-								<Send size={18} /> Send Voice
-							</Button>
-						</div>
+							{audioURL && (
+								<div className="space-y-3">
+									<p className="text-sm font-bold text-gray-700 text-left">
+										Your voice
+									</p>
+									<audio
+										ref={userAudioRef}
+										onPlay={handleUserPlay}
+										controls
+										className="w-full rounded-md">
+										<source src={audioURL} />
+									</audio>
+								</div>
+							)}
 
-						{(audioURL || responseAudioURL) && (
-							<Button
-								onClick={handleRetry}
-								variant="outline"
-								className="mt-4 text-sm">
-								Talk More
-							</Button>
-						)}
-					</CardContent>
-				</Card>
+							{responseAudioURL && (
+								<div className="space-y-3 mt-8">
+									<p className="text-sm font-bold text-gray-700 text-right">
+										Response
+									</p>
+									<audio
+										ref={responseAudioRef}
+										onPlay={handleResponsePlay}
+										controls
+										className="w-full rounded-md">
+										<source src={responseAudioURL} />
+									</audio>
+								</div>
+							)}
+
+							{detectedLanguage && (
+								<p className="text-sm italic text-gray-600 mt-2">
+									Detected language: <strong>{detectedLanguage}</strong>
+								</p>
+							)}
+
+							<div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+								<Button
+									onClick={
+										isRecording
+											? handleStopRecording
+											: audioURL
+											? handleRetry
+											: handleStartRecording
+									}
+									disabled={!isInitialized || isLoading}
+									size="lg"
+									className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center cursor-pointer">
+									{isRecording ? (
+										<>
+											<Clock3 size={18} /> Stop ({recordingTime}s)
+										</>
+									) : audioURL ? (
+										<>
+											<Repeat size={18} /> Record Again
+										</>
+									) : (
+										<>
+											<Mic size={18} /> Start Talking
+										</>
+									)}
+								</Button>
+
+								<Button
+									onClick={handleSend}
+									disabled={
+										!audioBlob ||
+										isLoading ||
+										!isInitialized ||
+										responseAudioURL
+									}
+									size="lg"
+									className={`text-lg px-6 py-3 rounded-2xl flex gap-2 items-center cursor-pointer
+									${
+										audioBlob && !isLoading && !responseAudioURL
+											? "bg-green-600 text-white shadow-lg animate-pulse"
+											: ""
+									}
+								`}>
+									<Send size={18} /> Send Voice
+								</Button>
+							</div>
+
+							{(audioURL || responseAudioURL) && (
+								<Button
+									onClick={handleRetry}
+									variant="outline"
+									disabled={isLoading || !responseAudioURL}
+									className="mt-4 text-sm cursor-pointer">
+									Talk More
+								</Button>
+							)}
+						</CardContent>
+					</Card>
+				</div>
 			</main>
 
 			<SupportedLanguagesTicker />
-			<footer className="mt-12 text-sm text-muted-foreground text-center">
+			<footer className="mt-12 text-sm text-gray-500 text-center">
 				VoiceNest © {year} — Made with empathy.
 			</footer>
 		</div>
