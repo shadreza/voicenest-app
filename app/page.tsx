@@ -3,6 +3,7 @@
 import SupportedLanguagesTicker from "@/components/SupportedLanguagesTicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { LANGUAGE_CODE_TO_LABEL_MAP } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, Clock3, Loader2, Mic, Repeat, Send } from "lucide-react";
 import Image from "next/image";
@@ -11,19 +12,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const MAX_DURATION_SEC = 60;
 
 export default function AudioRecorder() {
-	const [isRecording, setIsRecording] = useState<boolean>(false);
-	const [isLoading, setIsLoading] = useState<boolean>(false);
-	const [isInitialized, setIsInitialized] = useState<boolean>(false);
+	const [isRecording, setIsRecording] = useState(false);
+	const [isLoading, setIsLoading] = useState(false);
+	const [isInitialized, setIsInitialized] = useState(false);
 	const [audioURL, setAudioURL] = useState<string | null>(null);
 	const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-	const [recordingTime, setRecordingTime] = useState<number>(0);
-	const [showCountdownNotice, setShowCountdownNotice] =
-		useState<boolean>(false);
+	const [recordingTime, setRecordingTime] = useState(0);
+	const [showCountdownNotice, setShowCountdownNotice] = useState(false);
+
+	const [responseAudioURL, setResponseAudioURL] = useState<string | null>(null);
+	const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
 
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const audioChunksRef = useRef<Blob[]>([]);
 	const timerRef = useRef<NodeJS.Timeout | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
+
+	const userAudioRef = useRef<HTMLAudioElement | null>(null);
+	const responseAudioRef = useRef<HTMLAudioElement | null>(null);
 
 	const year = new Date().getFullYear();
 
@@ -77,9 +83,7 @@ export default function AudioRecorder() {
 			mediaRecorderRef.current = mediaRecorder;
 
 			mediaRecorder.ondataavailable = (event: BlobEvent): void => {
-				if (event.data.size > 0) {
-					audioChunksRef.current.push(event.data);
-				}
+				if (event.data.size > 0) audioChunksRef.current.push(event.data);
 			};
 
 			mediaRecorder.onstop = async (): Promise<void> => {
@@ -98,9 +102,8 @@ export default function AudioRecorder() {
 			timerRef.current = setInterval(() => {
 				setRecordingTime((prev) => {
 					const newTime = prev + 1;
-					if (newTime >= MAX_DURATION_SEC - 10 && newTime < MAX_DURATION_SEC) {
+					if (newTime >= MAX_DURATION_SEC - 10 && newTime < MAX_DURATION_SEC)
 						setShowCountdownNotice(true);
-					}
 					if (newTime >= MAX_DURATION_SEC) {
 						handleStopRecording();
 						return MAX_DURATION_SEC;
@@ -119,18 +122,19 @@ export default function AudioRecorder() {
 			reader.onload = async () => {
 				try {
 					const arrayBuffer = reader.result as ArrayBuffer;
-					const AudioContextClass =
+					const AudioContextClass: typeof AudioContext =
 						window.AudioContext ||
 						(
-							window as Window &
-								typeof globalThis & { webkitAudioContext: typeof AudioContext }
+							window as typeof window & {
+								webkitAudioContext: typeof AudioContext;
+							}
 						).webkitAudioContext;
 					const audioContext = new AudioContextClass();
 					const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 					const wavBuffer = audioBufferToWav(audioBuffer);
 					resolve(new Blob([wavBuffer], { type: "audio/wav" }));
 				} catch (error) {
-					console.error("WAV conversion failed, using original:", error);
+					console.error("WAV conversion failed:", error);
 					resolve(webmBlob);
 				}
 			};
@@ -183,6 +187,8 @@ export default function AudioRecorder() {
 	const handleRetry = (): void => {
 		setAudioURL(null);
 		setAudioBlob(null);
+		setResponseAudioURL(null);
+		setDetectedLanguage(null);
 		setRecordingTime(0);
 		setShowCountdownNotice(false);
 	};
@@ -201,32 +207,23 @@ export default function AudioRecorder() {
 				body: formData,
 			});
 
-			if (response.ok) {
-				const contentType = response.headers.get("content-type");
+			if (
+				response.ok &&
+				response.headers.get("Content-Type")?.includes("audio/mpeg")
+			) {
+				const arrayBuffer = await response.arrayBuffer();
+				const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
+				const url = URL.createObjectURL(blob);
+				setResponseAudioURL(url);
 
-				if (contentType?.includes("audio/mpeg")) {
-					const audioBlob = await response.blob();
-					const audioUrl = URL.createObjectURL(audioBlob);
-					const audio = new Audio(audioUrl);
+				const langHeader = response.headers.get("x-language");
 
-					await audio.play().catch((err) => {
-						console.error("Error playing audio:", err);
-						alert("Received audio but couldn't play it.");
-					});
-
-					audio.addEventListener("ended", () => {
-						URL.revokeObjectURL(audioUrl);
-					});
-
-					alert("Voice response received and playing!");
-				} else {
-					const result = await response.json();
-					console.log("Upload successful:", result);
-					alert("Voice sent successfully!");
-				}
-				handleRetry();
+				if (langHeader)
+					setDetectedLanguage(LANGUAGE_CODE_TO_LABEL_MAP[langHeader]);
 			} else {
-				throw new Error(`Upload failed with status: ${response.status}`);
+				const result = await response.json();
+				alert("Voice sent successfully!");
+				console.log("Response:", result);
 			}
 		} catch (error) {
 			console.error("Failed to send audio:", error);
@@ -236,68 +233,49 @@ export default function AudioRecorder() {
 		}
 	};
 
+	const handleUserPlay = () => {
+		if (responseAudioRef.current) responseAudioRef.current.pause();
+	};
+	const handleResponsePlay = () => {
+		if (userAudioRef.current) userAudioRef.current.pause();
+	};
+
 	useEffect(() => {
 		initializeRecorder();
 		return () => {
 			if (timerRef.current) clearInterval(timerRef.current);
-			if (streamRef.current) {
-				streamRef.current.getTracks().forEach((track) => track.stop());
-			}
-			if (audioURL) {
-				URL.revokeObjectURL(audioURL);
-			}
+			if (streamRef.current)
+				streamRef.current.getTracks().forEach((t) => t.stop());
+			if (audioURL) URL.revokeObjectURL(audioURL);
 		};
 	}, [audioURL, initializeRecorder]);
 
 	return (
 		<div className="grid grid-rows-[auto_1fr_auto] items-center justify-items-center min-h-screen p-6 sm:p-12 font-sans bg-[#fefcf8]">
 			<main className="flex flex-col gap-6 items-center w-full max-w-2xl text-center">
-				<motion.div
-					initial={{ opacity: 0, y: -20 }}
-					animate={{ opacity: 1, y: 0 }}
-					transition={{ duration: 0.5 }}>
-					<Image
-						className="dark:invert mb-10"
-						src="/voicenest-logo.png"
-						alt="VoiceNest logo"
-						width={40}
-						height={40}
-						priority
-					/>
-				</motion.div>
-
-				<motion.h1
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					transition={{ delay: 0.3 }}
-					className="text-3xl sm:text-4xl font-bold text-[#2c2c2c] tracking-tight">
+				<Image
+					className="dark:invert mb-10"
+					src="/voicenest-logo.png"
+					alt="VoiceNest logo"
+					width={40}
+					height={40}
+					priority
+				/>
+				<h1 className="text-3xl sm:text-4xl font-bold text-[#2c2c2c] tracking-tight">
 					Speak Your Heart
-				</motion.h1>
-
-				<motion.p
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					transition={{ delay: 0.5 }}
-					className="text-lg text-muted-foreground">
+				</h1>
+				<p className="text-lg text-muted-foreground">
 					Tap to record your voice. Let your feelings be heard.
-				</motion.p>
-
-				<motion.p
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					transition={{ delay: 0.7 }}
-					className="text-muted-foreground">
+				</p>
+				<p className="text-muted-foreground">
 					Maximum recording time: {formatDuration(MAX_DURATION_SEC)}
-				</motion.p>
+				</p>
 
 				{!isInitialized && (
-					<motion.div
-						initial={{ opacity: 0 }}
-						animate={{ opacity: 1 }}
-						className="bg-yellow-100 text-yellow-800 p-3 rounded-xl flex items-center justify-center gap-2 font-medium">
-						<Loader2 size={16} className="animate-spin" />
-						Initializing recorder...
-					</motion.div>
+					<div className="bg-yellow-100 text-yellow-800 p-3 rounded-xl flex items-center justify-center gap-2 font-medium">
+						<Loader2 size={16} className="animate-spin" /> Initializing
+						recorder...
+					</div>
 				)}
 
 				<Card className="w-full mt-10">
@@ -314,32 +292,36 @@ export default function AudioRecorder() {
 							)}
 						</AnimatePresence>
 
-						{isLoading ? (
-							<motion.div
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								exit={{ opacity: 0 }}
-								className="flex flex-col items-center justify-center text-center space-y-2 py-6 animate-pulse text-muted-foreground">
-								<Loader2 size={24} className="animate-spin" />
-								<p className="text-base font-medium">
-									Please wait, your voice is being heard...
-								</p>
-							</motion.div>
-						) : (
-							audioURL && (
-								<motion.div
-									initial={{ opacity: 0, scale: 0.95 }}
-									animate={{ opacity: 1, scale: 1 }}
-									className="w-full">
-									<audio controls className="w-full">
-										<source
-											src={audioURL}
-											type={audioBlob?.type || "audio/wav"}
-										/>
-										Your browser does not support the audio element.
-									</audio>
-								</motion.div>
-							)
+						{audioURL && (
+							<div className="space-y-3">
+								<p className="text-sm font-medium text-gray-600">Your voice:</p>
+								<audio
+									ref={userAudioRef}
+									onPlay={handleUserPlay}
+									controls
+									className="w-full bg-gray-100 rounded-md">
+									<source src={audioURL} />
+								</audio>
+							</div>
+						)}
+
+						{responseAudioURL && (
+							<div className="space-y-3">
+								<p className="text-sm font-medium text-gray-600">Response:</p>
+								<audio
+									ref={responseAudioRef}
+									onPlay={handleResponsePlay}
+									controls
+									className="w-full bg-yellow-100 rounded-md">
+									<source src={responseAudioURL} />
+								</audio>
+							</div>
+						)}
+
+						{detectedLanguage && (
+							<p className="text-sm italic text-muted-foreground mt-2">
+								Detected language: <strong>{detectedLanguage}</strong>
+							</p>
 						)}
 
 						<div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
@@ -353,7 +335,7 @@ export default function AudioRecorder() {
 								}
 								disabled={!isInitialized}
 								size="lg"
-								className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center">
+								className="text-lg px-6 py-3 rounded-2xl shadow-md flex gap-2 items-center cursor-pointer">
 								{isRecording ? (
 									<>
 										<Clock3 size={18} /> Stop ({recordingTime}s)
@@ -374,16 +356,24 @@ export default function AudioRecorder() {
 								disabled={!audioBlob || isLoading || !isInitialized}
 								variant="secondary"
 								size="lg"
-								className="text-lg px-6 py-3 rounded-2xl flex gap-2 items-center">
+								className="text-lg px-6 py-3 rounded-2xl flex gap-2 items-center cursor-pointer">
 								<Send size={18} /> Send Voice
 							</Button>
 						</div>
+
+						{(audioURL || responseAudioURL) && (
+							<Button
+								onClick={handleRetry}
+								variant="outline"
+								className="mt-4 text-sm">
+								Talk More
+							</Button>
+						)}
 					</CardContent>
 				</Card>
 			</main>
 
 			<SupportedLanguagesTicker />
-
 			<footer className="mt-12 text-sm text-muted-foreground text-center">
 				VoiceNest © {year} — Made with empathy.
 			</footer>
