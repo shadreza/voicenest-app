@@ -1,7 +1,5 @@
 "use client";
 
-// @ts-nocheck
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AnimatePresence, motion } from "framer-motion";
@@ -9,33 +7,32 @@ import { AlertCircle, Clock3, Loader2, Mic, Repeat, Send } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const MAX_DURATION_SEC = 60; // 5 minutes
+const MAX_DURATION_SEC = 60;
 
 export default function AudioRecorder() {
-	const [isRecording, setIsRecording] = useState(false);
-	const [isLoading, setIsLoading] = useState(false);
-	const [isInitialized, setIsInitialized] = useState(false);
-	const [audioURL, setAudioURL] = useState(null);
-	const [audioBlob, setAudioBlob] = useState(null);
-	const [recordingTime, setRecordingTime] = useState(0);
-	const [showCountdownNotice, setShowCountdownNotice] = useState(false);
+	const [isRecording, setIsRecording] = useState<boolean>(false);
+	const [isLoading, setIsLoading] = useState<boolean>(false);
+	const [isInitialized, setIsInitialized] = useState<boolean>(false);
+	const [audioURL, setAudioURL] = useState<string | null>(null);
+	const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+	const [recordingTime, setRecordingTime] = useState<number>(0);
+	const [showCountdownNotice, setShowCountdownNotice] =
+		useState<boolean>(false);
 
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-	const audioChunksRef = useRef([]);
-	const timerRef = useRef(null);
+	const audioChunksRef = useRef<Blob[]>([]);
+	const timerRef = useRef<NodeJS.Timeout | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
 
 	const year = new Date().getFullYear();
 
-	// Format duration helper
-	const formatDuration = (seconds: number) => {
+	const formatDuration = (seconds: number): string => {
 		const mins = Math.floor(seconds / 60);
 		const secs = seconds % 60;
 		return `${mins}:${secs.toString().padStart(2, "0")}`;
 	};
 
-	// Initialize audio recorder
-	const initializeRecorder = useCallback(async () => {
+	const initializeRecorder = useCallback(async (): Promise<void> => {
 		try {
 			const stream = await navigator.mediaDevices.getUserMedia({
 				audio: {
@@ -44,7 +41,6 @@ export default function AudioRecorder() {
 					sampleRate: 44100,
 				},
 			});
-
 			streamRef.current = stream;
 			setIsInitialized(true);
 		} catch (error) {
@@ -53,8 +49,19 @@ export default function AudioRecorder() {
 		}
 	}, []);
 
-	// Start recording
-	const handleStartRecording = useCallback(async () => {
+	const handleStopRecording = useCallback((): void => {
+		if (mediaRecorderRef.current && isRecording) {
+			mediaRecorderRef.current.stop();
+			setIsRecording(false);
+			setShowCountdownNotice(false);
+			if (timerRef.current) {
+				clearInterval(timerRef.current);
+				timerRef.current = null;
+			}
+		}
+	}, [isRecording]);
+
+	const handleStartRecording = useCallback(async (): Promise<void> => {
 		if (!streamRef.current) {
 			await initializeRecorder();
 			return;
@@ -64,106 +71,82 @@ export default function AudioRecorder() {
 			audioChunksRef.current = [];
 
 			const mediaRecorder = new MediaRecorder(streamRef.current, {
-				mimeType: "audio/webm;codecs=opus", // Fallback to WAV conversion
+				mimeType: "audio/webm;codecs=opus",
 			});
-
 			mediaRecorderRef.current = mediaRecorder;
 
-			mediaRecorder.ondataavailable = (event) => {
+			mediaRecorder.ondataavailable = (event: BlobEvent): void => {
 				if (event.data.size > 0) {
 					audioChunksRef.current.push(event.data);
 				}
 			};
 
-			mediaRecorder.onstop = async () => {
+			mediaRecorder.onstop = async (): Promise<void> => {
 				const audioBlob = new Blob(audioChunksRef.current, {
 					type: "audio/webm;codecs=opus",
 				});
-
-				// Convert to WAV format
 				const wavBlob = await convertToWav(audioBlob);
 				setAudioBlob(wavBlob);
 				setAudioURL(URL.createObjectURL(wavBlob));
 			};
 
-			mediaRecorder.start(100); // Collect data every 100ms
+			mediaRecorder.start(100);
 			setIsRecording(true);
 			setRecordingTime(0);
 
-			// Start timer
 			timerRef.current = setInterval(() => {
 				setRecordingTime((prev) => {
 					const newTime = prev + 1;
-
-					// Show countdown notice in last 10 seconds
 					if (newTime >= MAX_DURATION_SEC - 10 && newTime < MAX_DURATION_SEC) {
 						setShowCountdownNotice(true);
 					}
-
-					// Auto-stop at max duration
 					if (newTime >= MAX_DURATION_SEC) {
 						handleStopRecording();
 						return MAX_DURATION_SEC;
 					}
-
 					return newTime;
 				});
 			}, 1000);
 		} catch (error) {
 			console.error("Failed to start recording:", error);
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	}, [initializeRecorder, handleStopRecording]);
 
-	// Stop recording
-	const handleStopRecording = useCallback(() => {
-		if (mediaRecorderRef.current && isRecording) {
-			mediaRecorderRef.current.stop();
-			setIsRecording(false);
-			setShowCountdownNotice(false);
-
-			if (timerRef.current) {
-				clearInterval(timerRef.current);
-				timerRef.current = null;
-			}
-		}
-	}, [isRecording]);
-
-	// Convert WebM to WAV format
-	const convertToWav = async (webmBlob: unknown) => {
+	const convertToWav = async (webmBlob: Blob): Promise<Blob> => {
 		return new Promise((resolve) => {
 			const reader = new FileReader();
 			reader.onload = async () => {
 				try {
-					const audioContext = new (window.AudioContext ||
-						window.webkitAudioContext)();
-					const audioBuffer = await audioContext.decodeAudioData(reader.result);
-
-					// Convert to WAV
+					const arrayBuffer = reader.result as ArrayBuffer;
+					const AudioContextClass =
+						window.AudioContext ||
+						(
+							window as Window &
+								typeof globalThis & { webkitAudioContext: typeof AudioContext }
+						).webkitAudioContext;
+					const audioContext = new AudioContextClass();
+					const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 					const wavBuffer = audioBufferToWav(audioBuffer);
-					const wavBlob = new Blob([wavBuffer], { type: "audio/wav" });
-					resolve(wavBlob);
+					resolve(new Blob([wavBuffer], { type: "audio/wav" }));
 				} catch (error) {
 					console.error("WAV conversion failed, using original:", error);
-					resolve(webmBlob); // Fallback to original
+					resolve(webmBlob);
 				}
 			};
 			reader.readAsArrayBuffer(webmBlob);
 		});
 	};
 
-	// Convert AudioBuffer to WAV format
-	const audioBufferToWav = (buffer: AudioBuffer) => {
+	const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
 		const length = buffer.length;
 		const numberOfChannels = buffer.numberOfChannels;
 		const sampleRate = buffer.sampleRate;
 		const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2);
 		const view = new DataView(arrayBuffer);
 
-		// WAV header
-		const writeString = (offset: number, string: string) => {
-			for (let i = 0; i < string.length; i++) {
-				view.setUint8(offset + i, string.charCodeAt(i));
+		const writeString = (offset: number, str: string): void => {
+			for (let i = 0; i < str.length; i++) {
+				view.setUint8(offset + i, str.charCodeAt(i));
 			}
 		};
 
@@ -181,7 +164,6 @@ export default function AudioRecorder() {
 		writeString(36, "data");
 		view.setUint32(40, length * numberOfChannels * 2, true);
 
-		// Convert audio data
 		let offset = 44;
 		for (let i = 0; i < length; i++) {
 			for (let channel = 0; channel < numberOfChannels; channel++) {
@@ -197,67 +179,51 @@ export default function AudioRecorder() {
 		return arrayBuffer;
 	};
 
-	// Retry recording
-	const handleRetry = () => {
+	const handleRetry = (): void => {
 		setAudioURL(null);
 		setAudioBlob(null);
 		setRecordingTime(0);
 		setShowCountdownNotice(false);
 	};
 
-	// Send audio to API
-	const handleSend = async () => {
+	const handleSend = async (): Promise<void> => {
 		if (!audioBlob) return;
-
 		setIsLoading(true);
 
 		try {
 			const formData = new FormData();
 			formData.append("audio", audioBlob, "recording.wav");
+
 			const API_URL = "https://xajona2jla.execute-api.ap-south-1.amazonaws.com";
 			const response = await fetch(`${API_URL}/voice`, {
 				method: "POST",
 				body: formData,
 			});
 
-			console.log("response : ", response);
-
 			if (response.ok) {
-				// Check if the response is audio (MP3)
 				const contentType = response.headers.get("content-type");
 
-				if (contentType && contentType.includes("audio/mpeg")) {
-					// Handle audio response
+				if (contentType?.includes("audio/mpeg")) {
 					const audioBlob = await response.blob();
-
-					// Create audio URL and play it
 					const audioUrl = URL.createObjectURL(audioBlob);
 					const audio = new Audio(audioUrl);
 
-					// Play the audio
-					audio
-						.play()
-						.then(() => {
-							console.log("Audio playback started");
-							alert("Voice response received and playing!");
-						})
-						.catch((error) => {
-							console.error("Error playing audio:", error);
-							alert("Received audio but couldn't play it");
-						});
+					await audio.play().catch((err) => {
+						console.error("Error playing audio:", err);
+						alert("Received audio but couldn't play it.");
+					});
 
-					// Optional: Clean up the URL after audio ends
 					audio.addEventListener("ended", () => {
 						URL.revokeObjectURL(audioUrl);
 					});
+
+					alert("Voice response received and playing!");
 				} else {
-					// Handle JSON response (in case your API sometimes returns JSON)
 					const result = await response.json();
 					console.log("Upload successful:", result);
 					alert("Voice sent successfully!");
 				}
-
-				handleRetry(); // Reset for new recording
+				handleRetry();
 			} else {
 				throw new Error(`Upload failed with status: ${response.status}`);
 			}
@@ -269,20 +235,12 @@ export default function AudioRecorder() {
 		}
 	};
 
-	// Initialize on component mount
 	useEffect(() => {
 		initializeRecorder();
-
 		return () => {
-			// Cleanup
-			if (timerRef.current) {
-				clearInterval(timerRef.current);
-			}
+			if (timerRef.current) clearInterval(timerRef.current);
 			if (streamRef.current) {
-				streamRef.current
-					.getTracks()
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any
-					.forEach((track: { stop: () => any }) => track.stop());
+				streamRef.current.getTracks().forEach((track) => track.stop());
 			}
 			if (audioURL) {
 				URL.revokeObjectURL(audioURL);
