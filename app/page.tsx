@@ -396,7 +396,7 @@ export default function AudioRecorder() {
 										!audioBlob ||
 										isLoading ||
 										!isInitialized ||
-										responseAudioURL
+										!!responseAudioURL
 									}
 									size="lg"
 									className={`text-lg px-6 py-3 rounded-2xl flex gap-2 items-center cursor-pointer
