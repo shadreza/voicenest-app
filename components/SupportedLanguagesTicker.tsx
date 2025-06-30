@@ -2,36 +2,40 @@
 
 import { SUPPORTED_LANGUAGES } from "@/lib/constants";
 import { motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
 
-export default function SupportedLanguagesTicker() {
-	const containerRef = useRef<HTMLDivElement>(null);
-	const [width, setWidth] = useState(0);
-
-	useEffect(() => {
-		if (containerRef.current) {
-			setWidth(containerRef.current.scrollWidth / 2);
-		}
-	}, []);
-
+export default function SupportedLanguagesGrid() {
 	return (
-		<div className="overflow-hidden w-full max-w-lg mx-auto mt-4">
+		<div className="w-full max-w-4xl mx-auto mt-16 px-4">
+			<h2 className="text-center text-lg font-semibold mb-4 text-muted-foreground">
+				🌍 Languages VoiceNest Can Speak
+			</h2>
+
 			<motion.div
-				ref={containerRef}
-				className="flex gap-6 text-sm text-muted-foreground font-medium whitespace-nowrap"
-				animate={{ x: [-0, -width] }}
-				transition={{
-					repeat: Infinity,
-					duration: 30,
-					ease: "linear",
-				}}>
-				{[...SUPPORTED_LANGUAGES, ...SUPPORTED_LANGUAGES].map((lang, idx) => (
-					<div
+				initial="hidden"
+				animate="visible"
+				variants={{
+					hidden: { opacity: 0, y: 20 },
+					visible: {
+						opacity: 1,
+						y: 0,
+						transition: {
+							delayChildren: 0.2,
+							staggerChildren: 0.03,
+						},
+					},
+				}}
+				className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-96 overflow-y-auto p-2 border border-border rounded-xl bg-muted/40 shadow-inner">
+				{SUPPORTED_LANGUAGES.map((lang, idx) => (
+					<motion.div
 						key={idx}
-						className="px-3 py-1 bg-muted rounded-xl border border-border"
+						variants={{
+							hidden: { opacity: 0, y: 10 },
+							visible: { opacity: 1, y: 0 },
+						}}
+						className="px-3 py-2 text-sm text-muted-foreground bg-background rounded-lg border border-border shadow-sm"
 						title={lang.label}>
-						🌍 {lang.label}
-					</div>
+						🌐 {lang.label}
+					</motion.div>
 				))}
 			</motion.div>
 		</div>
