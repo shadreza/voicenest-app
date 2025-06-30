@@ -209,8 +209,7 @@ export default function AudioRecorder() {
 			const formData = new FormData();
 			formData.append("audio", audioBlob, "recording.wav");
 
-			const API_URL = "https://xajona2jla.execute-api.ap-south-1.amazonaws.com";
-			const response = await fetch(`${API_URL}/voice`, {
+			const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/voice`, {
 				method: "POST",
 				body: formData,
 			});
