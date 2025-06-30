@@ -1,80 +1,77 @@
-# 📱 VoiceNest App (Frontend)
+# ☁️ VoiceNest App — Frontend Interface for the Elderly AI Companion
 
-> **Empathetic AI Companion — Speak Your Heart**
+> **Empathetic Voice UI for Human-like AI Interaction**
 >
-> A modern, voice-based emotional support app for elderly users, built with **Next.js**, **shadcn/ui**, and **Framer Motion**. Powered by AWS Lambda backend.
+> This frontend application brings to life [VoiceNest](https://voicenest-app.vercel.app), a multilingual voice-based support tool designed for elderly users — powered by AWS Lambda and a suite of AI services.
 
 ---
 
-## 🌐 Live Demo
+## 📖 About the Project
 
-- **App**: [https://voicenest-app.vercel.app](https://voicenest-app.vercel.app)
+**VoiceNest** was built with one simple idea: what if we could reduce loneliness using only voice? Elderly users often struggle with smartphones and apps, but speaking comes naturally. Our goal was to build an application where they can just press a button, speak their heart, and receive an intelligent, caring voice reply.
+
+This frontend is powered by a serverless backend using AWS Lambda and multiple AI/ML services. The app provides a clean, accessible user interface with support for more than 40 languages — and works seamlessly on desktop and mobile browsers.
+
+All core features were built from scratch during the AWS Lambda Hackathon 2025.
 
 ---
 
 ## ✨ Features
 
-- 🎙️ Voice recording up to 60 seconds
-- 🤖 AI-generated empathetic replies (via Cohere)
-- 🌍 Supports 40+ spoken languages via Amazon Polly
-- 🎧 Play back your voice and the AI's response
-- 🧠 Language detection & multilingual translation
-- 🎁 Delightful UI/UX with smooth animations
+* 🎙️ Record voice input (up to 60 seconds)
+* 🌍 Detect language and translate responses
+* 🤖 Generate AI-based emotional support replies
+* 🔊 Play both original voice and AI-generated audio
+* 🧠 Smooth UI with language ticker, animations, and feedback
+* 📱 Mobile responsive and accessible UX
 
 ---
 
-## 🔧 Tech Stack
+## 💠 Tech Stack
 
-- **Framework**: Next.js 14
-- **UI Components**: [shadcn/ui](https://ui.shadcn.com)
-- **Animations**: Framer Motion
-- **Icons**: Lucide React
-- **Recording**: MediaRecorder API + WAV conversion
-- **API Endpoint**: AWS Lambda (via API Gateway)
+### 🔧 Frameworks & Libraries
 
----
+* **Next.js 14** — Frontend React framework
+* **shadcn/ui** — UI components
+* **Framer Motion** — UI animation engine
+* **Lucide React** — Icon library
 
-## 🚀 Getting Started
+### 🎙️ Browser APIs
 
-### 1. Clone the repo
+* **MediaRecorder API** — Record audio from user’s microphone
+* **WAV Conversion** — Encode audio in proper format for Lambda
 
-```bash
-git clone https://github.com/shadreza/voicenest-app.git
-cd voicenest-app
-```
+### ☁️ Backend Integration
 
-### 2. Install dependencies
-
-```bash
-npm install
-```
-
-### 3. Run locally
-
-```bash
-npm run dev
-```
-
-### 4. Set environment variable
-
-Create a `.env.local` file:
-
-```env
-NEXT_PUBLIC_API_URL=https://<your-api-id>.execute-api.<region>.amazonaws.com
-```
+* **AWS Lambda via API Gateway** — Core processing endpoint
+* **Amazon Transcribe** — Voice-to-text
+* **Amazon Comprehend** — Language and sentiment detection
+* **Amazon Translate** — Translation engine
+* **Amazon Polly** — Voice synthesis
+* **Cohere (command-r-plus)** — Empathetic response generation
 
 ---
 
-## 📁 Key Files
+## 🌐 Live Demo
 
-### `/app/page.tsx`
+> 🔗 [https://voicenest-app.vercel.app](https://voicenest-app.vercel.app)
 
-- Full implementation of the **AudioRecorder** component
-- Handles recording, conversion, playback, and API interaction
+The site is fully functional and accessible publicly — no login required.
 
-### `/components/SupportedLanguagesTicker.tsx`
+---
 
-- Displays supported languages in a **scrollable animated grid**
+## 📁 File Structure
+
+```
+.
+├── app/
+│   └── page.tsx                 # Audio recording UI and logic
+├── components/
+│   └── SupportedLanguagesTicker.tsx  # Scrollable animated language list
+├── public/                      # App screenshots
+├── styles/                      # Global styles
+└── .env.local                   # API Gateway URL config
+```
 
 ---
 
@@ -84,51 +81,104 @@ NEXT_PUBLIC_API_URL=https://<your-api-id>.execute-api.<region>.amazonaws.com
 
 ![Homepage](./public/Homepage.png)
 
-### 🎙️ Recording in Progress
+### 🎙️ Voice Recording
 
-![Homepage](./public/Recording.png)
+![Recording](./public/Recording.png)
 
-### ⏳ Waiting for Response
+### ⏳ AI Response Loading
 
-![Homepage](./public/WaitingForResponse.png)
+![Waiting](./public/WaitingForResponse.png)
 
-### 🤖 AI Reply with Detected Language
+### 🤖 Response + Playback
 
-![AI Response](./public/Response.png)
+![Response](./public/Response.png)
+
+---
+
+## 🔌 API Contract
+
+**POST** `${NEXT_PUBLIC_API_URL}/voice`
+
+* **Headers**: `Content-Type: multipart/form-data`
+* **Body**: `audio` (Blob)
+* **Returns**: `audio/mpeg` stream (base64) and `x-language` header
 
 ---
 
 ## 🌍 Supported Languages
 
-VoiceNest currently supports **40+ languages** via Amazon Polly.
-Displayed using an animated grid in the UI for accessibility and clarity.
+VoiceNest supports more than **40 spoken languages**:
+
+| Feature       | Service Used      | Notes                         |
+| ------------- | ----------------- | ----------------------------- |
+| Transcription | Amazon Transcribe | Auto-detects language         |
+| Translation   | Amazon Translate  | Seamless translation          |
+| Voice Output  | Amazon Polly      | Fallback to English if needed |
+
+Displayed interactively in the UI using a **scrollable ticker**.
 
 ---
 
-## ⚙️ API Contract
+## 📥 Local Setup Instructions
 
-**POST** `${NEXT_PUBLIC_API_URL}/voice`
+### 1. Clone and Navigate
 
-- **FormData**: `audio` (Blob, WAV format)
-- **Returns**: `audio/mpeg` stream with `x-language` header
+```bash
+git clone https://github.com/shadreza/voicenest-app.git
+cd voicenest-app
+```
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Add Environment Variable
+
+Create a `.env.local` file with:
+
+```env
+NEXT_PUBLIC_API_URL=https://<api-id>.execute-api.<region>.amazonaws.com
+```
+
+### 4. Start Development Server
+
+```bash
+npm run dev
+```
 
 ---
 
-## 💡 VoiceNest Vision
+## 🏁 Hackathon Compliance: AWS Lambda Usage
 
-VoiceNest brings emotional companionship to elderly individuals through human-like, multilingual voice interactions—without needing screens, typing, or apps.
+VoiceNest (frontend):
+
+* Connects directly to **AWS Lambda via API Gateway**
+* Sends recorded audio as `multipart/form-data`
+* Receives back AI-generated audio response
+* Built from scratch and submitted during Hackathon
+
+Backend Lambda processes input via:
+
+* Amazon Transcribe, Comprehend, Translate, Polly, and Cohere
+
+---
+
+## 💡 Vision for the Future
+
+* Emotion-specific voice modulation
+* Conversation history with sentiment timelines
+* Mobile-first PWA with push notifications
+* Offline fallback using IndexedDB
 
 ---
 
 ## 👤 Author
 
 **Muhammad Shad Reza**
-🌐 [LinkedIn](https://linkedin.com/in/shadreza100) • 🛠️ [GitHub](https://github.com/shadreza)
+🌐 [LinkedIn](https://linkedin.com/in/shadreza100) • 💻 [GitHub](https://github.com/shadreza)
 
 ---
 
-## 🛣️ Next Steps
-
-- Add emotion-specific voice modulation
-- Add history of conversations
-- Extend to mobile PWA / More Better AI Models Integration
+> 🧡 Helping voices feel heard — one word at a time.
